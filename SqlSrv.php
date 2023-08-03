@@ -1,39 +1,41 @@
 <?php
+
 /**
  * @version 0.1
  * @author Danny Nunez
+ *
+ * 03-08-2023 - Se añade prepareFetchArray donde prepara la consulta la retorna
  */
-class SqlSrv
+class dSqlSrv
 {
-
-    public $serverName = SQL_SERVER_NAME;
-    public $dbname = SQL_DB_NAME;
-    public $user = SQL_USER;
-    public $password = SQL_PASSWORD;
+    public $serverName = DB_HOST;
+    public $dbname =  DB_NAME;
+    public $user = DB_USER;
+    public $password = DB_PASS;
     public $characterSet = "UTF-8";
     public $connection;
-    protected $statement = null;
+    public $statement = null;
     protected $status = null;
-
-    function __construct()
+    function __construct($dbname = '')
     {
+        if ($dbname != '') {
+            $this->dbname = $dbname;
+        }
 
         $connectionInfo = array(
             "UID" => $this->user,
             "PWD" => $this->password,
             "Database" => $this->dbname,
-            "CharacterSet" => $this->characterSet
+            "CharacterSet" => $this->characterSet,
+            //"Driver" => "{ODBC Driver 18 for SQL Server}"
         );
-
-        $this->connection = sqlsrv_connect($this->serverName, $connectionInfo);
-
+        $this->connection = sqlsrv_connect($this->serverName, $connectionInfo);      
         if ($this->connection) {
             $this->status = true;
         } else {
             $this->status = false;
         }
     }
-
     /**
      * Checks is the db connection is established. All queries for dynamic DB content should check is the
      * connection is established and load fallback content if the connection value is false.   
@@ -43,7 +45,6 @@ class SqlSrv
     {
         return $this->status;
     }
-
     /**
      * Closes an open connection and releases resourses associated with the connection.
      * @return Returns TRUE on success or FALSE on failure.
@@ -54,7 +55,6 @@ class SqlSrv
             sqlsrv_close($this->connection);
         }
     }
-
     /**
      * Prepared statement
      * @param string $query sql query
@@ -63,10 +63,53 @@ class SqlSrv
      * @todo Fix error handling to make sure the user never sees any errors. 
      * @link http://www.php.net/manual/en/function.sqlsrv-prepare.php
      */
-    public function prepare($query)
-    {
-        return sqlsrv_prepare($this->connection, $query);
+    public function prepare($query, $params)
+    {        
+        $stmt = sqlsrv_prepare($this->connection, $query, $params);
+        if( $stmt === true ){            
+            return $stmt;
+        }else{
+            return false;
+        }
+        //return sqlsrv_prepare($this->connection, $query, $params);       
+        
     }
+
+
+    /**
+     * Prepared statement and return fetchArray
+     * @param string $query sql query
+     * @param array $params
+     * @param string $type - The type of array to return. SQLSRV_FETCH_ASSOC or SQLSRV_FETCH_NUMERIC 
+     * @return Returns array
+     * @todo david 18-04-2023 se intenta crear
+     * @todo david 02-08-2023 se modifica para que funcione
+     */
+    public function prepareFetchArray($query, $params, $type = SQLSRV_FETCH_ASSOC )
+    {        
+        $results = array();
+        $preparedStatement = sqlsrv_prepare($this->connection, $query, $params);
+        if( $preparedStatement === false){
+            return sqlsrv_errors();
+        }
+        $result = sqlsrv_execute($preparedStatement);      
+        $results = array();
+        if ($result === true) {
+            if ($type == SQLSRV_FETCH_ASSOC) {
+                while ($row = sqlsrv_fetch_array($preparedStatement, SQLSRV_FETCH_ASSOC)) {
+                    $results[] = $row;
+                }
+            } else {
+                while ($row = sqlsrv_fetch_array($preparedStatement, SQLSRV_FETCH_NUMERIC)) {
+                    $results[] = $row;
+                }
+            }
+            return $results;
+        } else {
+            return false;
+        }
+    }
+
 
     /**
      * @param $prepStmt - Value of prepared statement.
@@ -81,16 +124,8 @@ class SqlSrv
         } else {
             return false;
         }
-    }
+    }    
 
-    public function getResults($preparedStatement)
-    {
-        $results = array();
-        while ($row = sqlsrv_fetch_array($preparedStatement, SQLSRV_FETCH_ASSOC)) {
-            $results[] = $row;
-        }
-        return $results; 
-    }
 
     /**
      * @param $query string           
@@ -101,12 +136,11 @@ class SqlSrv
     {
         $this->statement = sqlsrv_query($this->connection, $query);
         if (!$this->statement) {
+            print_r($query);
             die(print_r(sqlsrv_errors(), true));
         }
-
         return $this->statement;
     }
-
     /**
      * Return Last entered ID
      * @return integer
@@ -114,27 +148,22 @@ class SqlSrv
     public function lastInsertId()
     {
         $scopeId = (int) $this->fetchCol("SELECT SCOPE_IDENTITY() AS SCOPE_IDENTITY");
-
         return $scopeId;
     }
-
     /**
      * @return integer
      */
     public function getRowsAffected()
     {
         if (is_null($this->statement)) {
-            return - 1;
+            return -1;
         }
-
         $rowsAffected = sqlsrv_rows_affected($this->statement);
-        if ($rowsAffected == - 1 || $rowsAffected === false) {
-            return - 1;
+        if ($rowsAffected == -1 || $rowsAffected === false) {
+            return -1;
         }
-
         return (int) $rowsAffected;
     }
-
     /**
      * @param $query string           
      * @return array of objects - Returns an object on success,
@@ -149,28 +178,29 @@ class SqlSrv
         while ($res = sqlsrv_fetch_object($stmt)) {
             $a_array[] = $res;
         }
-
         return $a_array;
     }
-
     /**
      * @param $query string
-     * @param $type string - The type of array to return. SQLSRV_FETCH_ASSOC or 
-     * SQLSRV_FETCH_NUMERIC 
+     * @param $type string - The type of array to return. SQLSRV_FETCH_ASSOC or SQLSRV_FETCH_NUMERIC 
      * for more info see here http://www.php.net/manual/en/function.sqlsrv-fetch-array.php 
      * @return array of array
      */
     public function fetchArray($query = null, $type = SQLSRV_FETCH_ASSOC)
     {
-        $stmt = $this->query($query);
+        if( ($query == null ||  $query == '') && $this->statement != null ){
+
+            $stmt = $this->query($this->statement);
+
+        }else{
+            $stmt = $this->query($query);
+        }        
         $a_array = array();
         while ($res = sqlsrv_fetch_array($stmt, $type)) {
             $a_array[] = $res;
         }
-
         return $a_array;
     }
-
     /**
      * @param $query string           
      * @return value - Returns data from the specified field on success. Returns FALSE otherwise.
@@ -181,10 +211,8 @@ class SqlSrv
         $stmt = $this->query($query);
         sqlsrv_fetch($stmt);
         $column = sqlsrv_get_field($stmt, 0);
-
         return $column;
     }
-
     /**
      * @param $prepStmt
      * @param string $fetchType object|array
@@ -205,23 +233,20 @@ class SqlSrv
             die(print_r(sqlsrv_errors(), true));
         }
     }
-
     /**
      * @param String $tableName - The name of the table. Returns all rows from the table requested. 
-     * @param type $type - The return type wanted. SQLSRV_FETCH_ASSOC 
-     * OR SQLSRV_FETCH_NUMERIC
+     * @param type $type - The return type wanted. SQLSRV_FETCH_ASSOC OR SQLSRV_FETCH_NUMERIC
+     * 
      * @return ARRAY - This method will return an associative or numeric array is results are returned.
      * By default an associative array will be returned. 
      */
     public function get($tableName, $feilds = '*', $type = SQLSRV_FETCH_ASSOC, $order = 'DESC')
     {
-
         if (is_array($feilds)) {
             $feildsString = $this->feildsBuilder($feilds);
         } else {
             $feildsString = '*';
         }
-
         $sql = "SELECT $feildsString FROM $tableName ORDER BY id $order";
         $preparedStatement = sqlsrv_prepare($this->connection, $sql);
         $result = sqlsrv_execute($preparedStatement);
@@ -241,7 +266,6 @@ class SqlSrv
             return false;
         }
     }
-
     /**
      * @param String $tableName - The name of the table. Returns all rows from the table requested.
      * @param Int $Id - The id of the record.   
@@ -264,7 +288,6 @@ class SqlSrv
             return false;
         }
     }
-
     /**
      * @param String $tableName - The name of the table. 
      * @param Array $keyValue - An associative array. The key is the feild name and the value is the field value.   
@@ -276,7 +299,7 @@ class SqlSrv
      * By default an associative array will be returned.
      * @todo  Build a querry builder to handle mulitple key value pairs. Currently only handles on set of keyvalues. 
      */
-    public function get_where($tableName, $keyValue, $type = 'SQLSRV_FETCH_ASSOC', $field = 'id' , $order = 'DESC')
+    public function get_where($tableName, $keyValue, $type = 'SQLSRV_FETCH_ASSOC', $field = 'id', $order = 'DESC')
     {
         $sqlString = $this->query_builder($keyValue);
         $sql = "SELECT * FROM $tableName WHERE $sqlString ORDER BY $field $order";
@@ -292,7 +315,6 @@ class SqlSrv
             return false;
         }
     }
-
     public function query_builder($keyValue)
     {
         $sqlString = '';
@@ -308,7 +330,6 @@ class SqlSrv
         }
         return $sqlString;
     }
-
     public function feildsBuilder($feilds)
     {
         $feildsString = '';
@@ -325,4 +346,19 @@ class SqlSrv
         return $feildsString;
     }
 
+
+    //Prepare query
+    public function prepareQuery($query)
+    {
+
+        return $query;
+    }
+
+    //Escapa caracteres ' en mssql para insertar
+    public function escape($str)
+    {
+
+        $str = stripslashes($str);
+        return str_replace("'", "´", $str);
+    }
 }
