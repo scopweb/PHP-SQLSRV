@@ -1,21 +1,25 @@
 <?php
 
 /**
- * @version 0.1
- * @author Danny Nunez
+ * Clase dSqlSrv2
  *
- * 03-08-2023 - Se añade prepareFetchArray donde prepara la consulta la retorna
+ * Esta clase se basa en el trabajo realizado por Danny Nunez 
+ * Para mas información https://github.com/DannyNunez/PHP-SQLSRV.
+ * 
+ * @version 0.2 
+ * @author David Prats
  */
-class dSqlSrv
+class dSqlSrv2
 {
     public $serverName = DB_HOST;
-    public $dbname =  DB_NAME;
+    public $dbname = DB_NAME;
     public $user = DB_USER;
     public $password = DB_PASS;
     public $characterSet = "UTF-8";
     public $connection;
     public $statement = null;
     protected $status = null;
+
     function __construct($dbname = '')
     {
         if ($dbname != '') {
@@ -29,50 +33,180 @@ class dSqlSrv
             "CharacterSet" => $this->characterSet,
             //"Driver" => "{ODBC Driver 18 for SQL Server}"
         );
-        $this->connection = sqlsrv_connect($this->serverName, $connectionInfo);      
+        $this->connection = sqlsrv_connect($this->serverName, $connectionInfo);
         if ($this->connection) {
             $this->status = true;
         } else {
             $this->status = false;
         }
     }
+
+
     /**
      * Checks is the db connection is established. All queries for dynamic DB content should check is the
      * connection is established and load fallback content if the connection value is false.   
-     * @return Boolean
+     * <code>
+     * $db->getStatus(  );
+     * </code>
+     * 
+     *
+     * @return bool
      */
+
     public function getStatus()
     {
         return $this->status;
     }
+
     /**
      * Closes an open connection and releases resourses associated with the connection.
-     * @return Returns TRUE on success or FALSE on failure.
+     * <code>
+     * $db->close( );
+     * </code>
+     * @return bool TRUE on success or FALSE on failure.
      */
     public function close()
     {
         if ($this->connection) {
-            sqlsrv_close($this->connection);
+            $result = sqlsrv_close($this->connection);
+            if ($result === false) {
+                // Opcional: Puedes registrar el error o manejarlo de alguna otra manera.
+                // error_log(print_r(sqlsrv_errors(), true));
+                return false;
+            }
         }
+        //Para que no de error si ya estuviera cerrada
+        return true;
     }
+
+    /**
+     * Begin the transaction.
+     * <code>
+     * $db->transaction( );
+     * </code>
+     * @return bool TRUE on success or FALSE on failure.
+     */
+    public function transaction()
+    {
+        /* Begin the transaction. */
+        $result = sqlsrv_begin_transaction($this->connection);
+        if ($result === false) {
+            // Opcional: Puedes registrar el error o manejarlo de alguna otra manera.
+            throw new Exception('transaction ::'.sqlsrv_errors(), 1);           
+        }
+        return true;
+    }
+
+
+    /**
+     * If both queries were successful, commit the transaction. 
+     * <code>
+     * $db->commit( );
+     * </code>
+     * @return bool TRUE on success or FALSE on failure.
+     */
+    public function commit()
+    {
+        $result = sqlsrv_commit($this->connection);
+        if ($result === false) {
+            // Opcional: Puedes registrar el error o manejarlo de alguna otra manera.
+            throw new Exception(print_r(sqlsrv_errors()), 1);
+            //return false;
+        }
+        return true;
+    }
+
+
+    /**
+     * Rollback the transaction
+     * <code>
+     * $db->rollback( );
+     * </code>
+     * @return bool TRUE on success or FALSE on failure.
+     */
+    public function rollback()
+    {
+        $result = sqlsrv_rollback($this->connection);
+        if ($result === false) {
+            // Opcional: Puedes registrar el error o manejarlo de alguna otra manera.
+            throw new Exception('rollback ::'.sqlsrv_errors(), 1);       
+            //return false;
+        }
+        return true;
+    }
+
+    
+    /**
+     * @param $stmt - The statement resource returned by sqlsrv_query or sqlsrv_prepare.
+     * @return bool TRUE on success or FALSE on failure.
+     * @link http://www.php.net/manual/en/function.sqlsrv-free-stmt.php
+     */
+    public function freeStmt($stmt = null)
+    {
+        if( $stmt == null )
+            return sqlsrv_free_stmt($this->statement);
+        else
+            return sqlsrv_free_stmt($stmt);
+        
+    }
+
+
     /**
      * Prepared statement
      * @param string $query sql query
      * @param array $params
-     * @return Returns a statement resource on success and FALSE if an error occurred.
-     * @todo Fix error handling to make sure the user never sees any errors. 
+     * @return resource|bool 'a statement resource on success and FALSE if an error occurred.
+     *
      * @link http://www.php.net/manual/en/function.sqlsrv-prepare.php
      */
-    public function prepare($query, $params)
-    {        
-        $stmt = sqlsrv_prepare($this->connection, $query, $params);
-        if( $stmt === true ){            
-            return $stmt;
-        }else{
+    public function prepare($query, $params= null)
+    {
+        return sqlsrv_prepare($this->connection, $query, $params);
+    }
+
+
+    /**
+     * @param $prepStmt - Value of prepared statement.     * 
+     * @return bool TRUE on success or FALSE on failure
+     * 
+     * @link http://www.php.net/manual/en/function.sqlsrv-execute.php
+     */
+    public function execute($prepStmt = null)
+    {
+        $this->statement = ($prepStmt == null) ? $this->statement : $prepStmt;
+        $result = sqlsrv_execute($this->statement);
+        if ($result === false) {
+            // Opcional: Puedes registrar el error o manejarlo de alguna otra manera.
+            error_log(print_r(sqlsrv_errors(), true));
             return false;
         }
-        //return sqlsrv_prepare($this->connection, $query, $params);       
-        
+        return true;
+    }
+
+
+    /**
+     * Prepared statement and executes
+     * @param string $query sql query
+     * @param array $params
+     * @link http://www.php.net/manual/en/function.sqlsrv-execute.php
+     * @return 'Returns' TRUE on success FALSE on failure
+     */
+    public function prepareExecute($query, $params = null)
+    {
+
+        $stmt = $this->prepare($query, $params);
+        if ($stmt === false) {
+            return false;
+        } else {
+            $this->statement = $stmt;
+            $result = sqlsrv_execute($stmt);
+            if ($result === false) {
+                // Opcional: Puedes registrar el error o manejarlo de alguna otra manera.
+                error_log(print_r(sqlsrv_errors(), true));
+                return false;
+            }
+            return true;
+        }
     }
 
 
@@ -81,30 +215,45 @@ class dSqlSrv
      * @param string $query sql query
      * @param array $params
      * @param string $type - The type of array to return. SQLSRV_FETCH_ASSOC or SQLSRV_FETCH_NUMERIC 
-     * @return Returns array
-     * @todo david 18-04-2023 se intenta crear
-     * @todo david 02-08-2023 se modifica para que funcione
+     * @return mixed arry bool - This method will return an associative or numeric array is results are returned.
+     * By default an associative array will be returned. 
      */
-    public function prepareFetchArray($query, $params, $type = SQLSRV_FETCH_ASSOC )
-    {        
+    public function prepareFetchArray($query, $params, $type = SQLSRV_FETCH_ASSOC)
+    {
         $results = array();
         $preparedStatement = sqlsrv_prepare($this->connection, $query, $params);
-        if( $preparedStatement === false){
-            return sqlsrv_errors();
+        if ($preparedStatement === false) {
+            error_log(print_r(sqlsrv_errors(), true));
+            return false;
         }
-        $result = sqlsrv_execute($preparedStatement);      
+        $result = sqlsrv_execute($preparedStatement);
         $results = array();
         if ($result === true) {
-            if ($type == SQLSRV_FETCH_ASSOC) {
-                while ($row = sqlsrv_fetch_array($preparedStatement, SQLSRV_FETCH_ASSOC)) {
-                    $results[] = $row;
-                }
-            } else {
-                while ($row = sqlsrv_fetch_array($preparedStatement, SQLSRV_FETCH_NUMERIC)) {
-                    $results[] = $row;
-                }
+            $type = ($type == SQLSRV_FETCH_ASSOC) ? 2 : 1;
+            while ($row = sqlsrv_fetch_array($preparedStatement, $type)) {
+                $results[] = $row;
             }
             return $results;
+        }
+        return false;
+    }
+
+
+    /**
+     * @param $query string       
+     * @param $params array                
+     * @return mixed 'Returns data from the specified field on success. Returns FALSE otherwise.
+     * @link http://www.php.net/manual/en/function.sqlsrv-get-field.php 
+     */
+    public function prepareFetchCol($query, $params = null)
+    {
+        $this->statement = sqlsrv_prepare($this->connection, $query, $params);
+        $result = sqlsrv_execute($this->statement);
+        if ($result === true) {
+            while ($row = sqlsrv_fetch_array($this->statement, SQLSRV_FETCH_NUMERIC)) {
+                return $row[0];
+            }
+            return false;
         } else {
             return false;
         }
@@ -112,35 +261,26 @@ class dSqlSrv
 
 
     /**
-     * @param $prepStmt - Value of prepared statement.
-     * @todo Fix error handling to make sure the user never sees any errors.
-     * @link http://www.php.net/manual/en/function.sqlsrv-execute.php
-     * @return Returns TRUE on success or FALSE on failure
+     * @param $query string 
+     * @param $params array            
+     * @return 'statement'
+     * @link http://www.php.net/manual/en/function.sqlsrv-query.php
+     * Tambien acepta parametros
+     * 25-10-2023 se modifica para que funcione con parametros.
+     * $sql = "SELECT * FROM tabla WHERE columna = ?";
+     * $params = array($valor);
+     * $result = sqlsrv_query($conn, $sql, $params);       
      */
-    public function execute($preparedStatement)
+    public function query($query, $params = null)
     {
-        if (sqlsrv_execute($preparedStatement) === true) {
-            return true;
-        } else {
-            return false;
-        }
-    }    
-
-
-    /**
-     * @param $query string           
-     * @return statement
-     * @todo Fix error handling, the user show never know. 
-     */
-    public function query($query)
-    {
-        $this->statement = sqlsrv_query($this->connection, $query);
+        $this->statement = sqlsrv_query($this->connection, $query, $params);
         if (!$this->statement) {
-            print_r($query);
-            die(print_r(sqlsrv_errors(), true));
+                error_log(print_r(sqlsrv_errors(), true));
+                return false; 
         }
         return $this->statement;
     }
+
     /**
      * Return Last entered ID
      * @return integer
@@ -150,11 +290,62 @@ class dSqlSrv
         $scopeId = (int) $this->fetchCol("SELECT SCOPE_IDENTITY() AS SCOPE_IDENTITY");
         return $scopeId;
     }
+
+    /**
+     * Return Last entered ID
+     * @param $stmt - The statement resource returned by sqlsrv_query or sqlsrv_prepare.
+     * @return integer
+     * @link http://php.net/manual/en/function.sqlsrv-next-result.php
+     */
+    function lastId($stmt)
+    {
+        sqlsrv_next_result($stmt);
+        sqlsrv_fetch($stmt);
+        return sqlsrv_get_field($stmt, 0);
+    }
+
+    function lastId3($stmt)
+    {
+        // Mover al siguiente resultado si está disponible
+        if (sqlsrv_next_result($stmt)) {
+
+             if (sqlsrv_next_result($stmt)) {
+                // Recuperar el resultado
+                if (sqlsrv_fetch($stmt)) {
+                    return sqlsrv_get_field($stmt, 0);
+                }
+             }
+        }
+        return null; // O manejar el error como prefieras
+    }
+
+    /**
+     * Return Last entered ID
+     * @param $stmt - The statement resource returned by sqlsrv_query or sqlsrv_prepare.
+     * @return integer
+     * @link http://php.net/manual/en/function.sqlsrv-next-result.php
+     */
+    function lastId2()
+    {
+        if (is_null($this->statement)) {
+            return -1;
+        }
+        sqlsrv_next_result($this->statement);
+        sqlsrv_fetch($this->statement);
+        return sqlsrv_get_field($this->statement, 0);
+    }
+
+
+
     /**
      * @return integer
+     * @param $stmt - The statement resource returned by sqlsrv_query or sqlsrv_prepare.
      */
-    public function getRowsAffected()
+    public function getRowsAffected($smtp = null)
     {
+        if( $smtp != null )
+            $this->statement = $smtp;
+        
         if (is_null($this->statement)) {
             return -1;
         }
@@ -164,61 +355,88 @@ class dSqlSrv
         }
         return (int) $rowsAffected;
     }
+
+
+
     /**
      * @param $query string           
-     * @return array of objects - Returns an object on success,
-     *  NULL if there are no more rows to return, 
+     * @return mixed array of objects - Returns an object on success,
+     * NULL if there are no more rows to return, 
      * and FALSE if an error occurs or if the specified class does not exist.
-     *  @link http://www.php.net/manual/en/function.sqlsrv-fetch-object.php
+     * @link http://www.php.net/manual/en/function.sqlsrv-fetch-object.php
      */
-    public function fetchObject($query)
+    public function fetchObject($query, $params = null)
     {
-        $stmt = $this->query($query);
-        $a_array = array();
-        while ($res = sqlsrv_fetch_object($stmt)) {
-            $a_array[] = $res;
+
+        if ($query != null && $query != '')
+            $this->query($query, $params);
+
+        if ($this->statement) {
+
+            $a_array = array();
+            //@return Returns an object on success, null if there are no more rows to return, and false if an error occurs or if the specified class does not exist.                  
+            while ($res = sqlsrv_fetch_object($this->statement)) {
+                $a_array[] = $res;
+            }
+            return $a_array;
+        } else {
+
+            return false;
         }
-        return $a_array;
     }
+
+
+
     /**
-     * @param $query string
-     * @param $type string - The type of array to return. SQLSRV_FETCH_ASSOC or SQLSRV_FETCH_NUMERIC 
+     * @param string $query 
+     * @param string|int $type  - The type of array to return. SQLSRV_FETCH_ASSOC or SQLSRV_FETCH_NUMERIC 
      * for more info see here http://www.php.net/manual/en/function.sqlsrv-fetch-array.php 
-     * @return array of array
+     * @return array|false of array
      */
-    public function fetchArray($query = null, $type = SQLSRV_FETCH_ASSOC)
+    public function fetchArray($query = null, $type = SQLSRV_FETCH_ASSOC, $params = null)
     {
-        if( ($query == null ||  $query == '') && $this->statement != null ){
 
-            $stmt = $this->query($this->statement);
+        if ($query != null && $query != '')
+            $this->query($query, $params);
 
-        }else{
-            $stmt = $this->query($query);
-        }        
-        $a_array = array();
-        while ($res = sqlsrv_fetch_array($stmt, $type)) {
-            $a_array[] = $res;
+        if ($this->statement) {
+
+            $a_array = array();
+            $type = ($type == SQLSRV_FETCH_ASSOC || $type == 2) ? 2 : 1;
+            //@return Returns an array on success, null if there are no more rows to return, and false if an error occurs.              
+            while ($res = sqlsrv_fetch_array($this->statement, $type)) {
+                $a_array[] = $res;
+            }
+            return $a_array;
+        } else {
+
+            error_log(print_r(sqlsrv_errors(), true));
+            return false;
         }
-        return $a_array;
     }
+
+
+
     /**
      * @param $query string           
-     * @return value - Returns data from the specified field on success. Returns FALSE otherwise.
+     * @return $column value - Returns data from the specified field on success. Returns FALSE otherwise.
      * @link http://www.php.net/manual/en/function.sqlsrv-get-field.php
      */
-    public function fetchCol($query)
+    public function fetchCol($query, $params = null)
     {
-        $stmt = $this->query($query);
-        sqlsrv_fetch($stmt);
-        $column = sqlsrv_get_field($stmt, 0);
+
+        $this->statement = $this->query($query, $params);
+        sqlsrv_fetch($this->statement);
+        $column = sqlsrv_get_field($this->statement, 0);
+
         return $column;
     }
+
+
     /**
      * @param $prepStmt
      * @param string $fetchType object|array
-     * @return multitype:mixed 
-     * @todo Fix error handling to make sure the user never sees any errors. 
-     * @todo Add return
+     * @return 'multitype:mixed'
      */
     public function executeFetch($prepStmt, $fetchType = 'object')
     {
@@ -229,15 +447,19 @@ class dSqlSrv
                 $a_array[] = $res;
             }
             return $a_array;
-        } else {
-            die(print_r(sqlsrv_errors(), true));
+        } else {            
+            return false;
         }
     }
+
+
     /**
-     * @param String $tableName - The name of the table. Returns all rows from the table requested. 
-     * @param type $type - The return type wanted. SQLSRV_FETCH_ASSOC OR SQLSRV_FETCH_NUMERIC
+     * @param string $tableName - The name of the table. Returns all rows from the table requested. 
+     * @param string|array $feilds - The feilds to return. By default all feilds will be returned.  
+     * @param string|int $type - The return type wanted. SQLSRV_FETCH_ASSOC OR SQLSRV_FETCH_NUMERIC
+     * @param string $order - Order the results either ASC or DESC. DESC is the default
      * 
-     * @return ARRAY - This method will return an associative or numeric array is results are returned.
+     * @return array|bool - This method will return an associative or numeric array is results are returned.
      * By default an associative array will be returned. 
      */
     public function get($tableName, $feilds = '*', $type = SQLSRV_FETCH_ASSOC, $order = 'DESC')
@@ -252,31 +474,31 @@ class dSqlSrv
         $result = sqlsrv_execute($preparedStatement);
         $results = array();
         if ($result === true) {
-            if ($type == SQLSRV_FETCH_ASSOC) {
-                while ($row = sqlsrv_fetch_array($preparedStatement, SQLSRV_FETCH_ASSOC)) {
-                    $results[] = $row;
-                }
-            } else {
-                while ($row = sqlsrv_fetch_array($preparedStatement, SQLSRV_FETCH_NUMERIC)) {
-                    $results[] = $row;
-                }
+
+            $type = ($type == SQLSRV_FETCH_ASSOC || $type == 2) ? 2 : 1;
+            while ($row = sqlsrv_fetch_array($preparedStatement, $type)) {
+                $results[] = $row;
             }
+
             return $results;
         } else {
             return false;
         }
     }
+
+
+
     /**
-     * @param String $tableName - The name of the table. Returns all rows from the table requested.
-     * @param Int $Id - The id of the record.   
-     * @param STRING $type - The return type wanted. SQLSRV_FETCH_ASSOC 
+     * @param string $tableName - The name of the table. Returns all rows from the table requested.
+     * @param int $Id - The id of the record.   
+     * @param string $type - The return type wanted. SQLSRV_FETCH_ASSOC 
      * OR SQLSRV_FETCH_NUMERIC - See http://www.php.net/manual/en/function.sqlsrv-fetch-array.php
-     * @return ARRAY - This method will return an associative or numeric array is results are returned.
+     * @return mixed array||bool - This method will return an associative or numeric array is results are returned.
      * By default an associative array will be returned. 
      */
     public function get_by_id($tableName, $id = null)
     {
-        $sql = "SELECT * FROM $tableName WHERE id = $id";
+        $sql = "SELECT * FROM " . $tableName . " WHERE id = $id";
         $preparedStatement = sqlsrv_prepare($this->connection, $sql);
         $result = sqlsrv_execute($preparedStatement);
         if ($result === true) {
@@ -288,16 +510,19 @@ class dSqlSrv
             return false;
         }
     }
+
+
+
     /**
-     * @param String $tableName - The name of the table. 
-     * @param Array $keyValue - An associative array. The key is the feild name and the value is the field value.   
-     * @param STRING $type - The return type wanted. SQLSRV_FETCH_ASSOC
-     * @param STRING $field - The field to order by.
-     * @param String $order - Order the results either ASC or DESC. DESC is the default 
+     * @param string $tableName - The name of the table. 
+     * @param array $keyValue - An associative array. The key is the feild name and the value is the field value.   
+     * @param string $type - The return type wanted. SQLSRV_FETCH_ASSOC
+     * @param string $field - The field to order by.
+     * @param string $order - Order the results either ASC or DESC. DESC is the default 
      * OR SQLSRV_FETCH_NUMERIC - See http://www.php.net/manual/en/function.sqlsrv-fetch-array.php
-     * @return ARRAY - This method will return an associative or numeric array is results are returned.
+     * @return mixed - This method will return an associative or numeric array is results are returned. False if no results are returned.
      * By default an associative array will be returned.
-     * @todo  Build a querry builder to handle mulitple key value pairs. Currently only handles on set of keyvalues. 
+     * Build a querry builder to handle mulitple key value pairs. Currently only handles on set of keyvalues. 
      */
     public function get_where($tableName, $keyValue, $type = 'SQLSRV_FETCH_ASSOC', $field = 'id', $order = 'DESC')
     {
@@ -315,6 +540,8 @@ class dSqlSrv
             return false;
         }
     }
+
+
     public function query_builder($keyValue)
     {
         $sqlString = '';
@@ -347,17 +574,9 @@ class dSqlSrv
     }
 
 
-    //Prepare query
-    public function prepareQuery($query)
-    {
-
-        return $query;
-    }
-
     //Escapa caracteres ' en mssql para insertar
     public function escape($str)
     {
-
         $str = stripslashes($str);
         return str_replace("'", "´", $str);
     }
