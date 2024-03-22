@@ -1,11 +1,12 @@
 <?php
 
+
 /**
  * Clase dSqlSrv2
  *
- * Esta clase se basa en el trabajo realizado por Danny Nunez 
- * Para mas información https://github.com/DannyNunez/PHP-SQLSRV.
- * 
+ * Esta clase se basa en el trabajo realizado por Danny Nunez.
+ * Para más información, ver [incluir si hay un enlace específico a la clase o trabajo de Danny Nunez].
+ *
  * @version 0.2 
  * @author David Prats
  */
